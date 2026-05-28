@@ -103,7 +103,7 @@ MCP_TOOLS = [
     },
     {
         "name": "search-stations",
-        "description": "智能车站搜索。支持中文名、拼音、简拼、三字码（Code）。可用于模糊搜索（如"北京"），也可用于精确获取车站代码（如输入"BJP"返回北京站信息）。",
+        "description": "智能车站搜索。支持中文名、拼音、简拼、三字码（Code）。可用于模糊搜索（如「北京」），也可用于精确获取车站代码（如输入「BJP」返回北京站信息）。",
         "inputSchema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -226,10 +226,19 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.requests = defaultdict(list)
-    
+        self._last_cleanup = time.time()
+
     def is_allowed(self, client_ip: str) -> bool:
         now = time.time()
-        # 清理过期记录
+        # 每 5 分钟清理过期 IP 条目，防止内存泄漏
+        if now - self._last_cleanup > 300:
+            self.requests = defaultdict(list, {
+                ip: [t for t in timestamps if now - t < self.window_seconds]
+                for ip, timestamps in self.requests.items()
+                if any(now - t < self.window_seconds for t in timestamps)
+            })
+            self._last_cleanup = now
+        # 清理当前 IP 的过期记录
         self.requests[client_ip] = [
             t for t in self.requests[client_ip]
             if now - t < self.window_seconds

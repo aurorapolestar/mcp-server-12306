@@ -1,0 +1,15 @@
+services:
+  mcp-12306:
+    build: .
+    container_name: mcp-12306
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3004:8000"
+    environment:
+      - TZ=Asia/Shanghai
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8000
+      - LOG_LEVEL=INFO
+      - MCP_12306_API_KEY=${MCP_12306_API_KEY:-}
+    env_file:
+      - .env
