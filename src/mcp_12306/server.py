@@ -3,6 +3,7 @@ import json
 import logging
 import httpx
 import os
+import hmac
 from datetime import datetime, date
 from typing import Dict, List, Any
 import uuid
@@ -186,6 +187,18 @@ MCP_TOOLS = [
     }
 ]
 
+
+ALLOWED_ORIGINS = [
+    "https://mcp.ashercloud.icu",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+def get_cors_origin(request_origin=None):
+    if request_origin and request_origin in ALLOWED_ORIGINS:
+        return request_origin
+    return ALLOWED_ORIGINS[0] if ALLOWED_ORIGINS else ""
+
 app = FastAPI(
     title=SERVER_NAME,
     version=SERVER_VERSION,
@@ -193,12 +206,6 @@ app = FastAPI(
     debug=settings.debug
 )
 
-# CORS - 限制来源，配合 nginx 认证使用
-ALLOWED_ORIGINS = [
-    "https://mcp.ashercloud.icu",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
 
 app.add_middleware(
     CORSMiddleware,
@@ -245,17 +252,17 @@ def verify_api_key(request: Request) -> bool:
     
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        return auth_header[7:] == API_KEY
+        return hmac.compare_digest(auth_header[7:], API_KEY)
     
     # 也支持查询参数
     query_key = request.query_params.get("key", "")
-    return query_key == API_KEY
+    return hmac.compare_digest(query_key, API_KEY)
 
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """频率限制中间件 - 每IP每分钟最多30次请求""
+    """频率限制中间件 - 每IP每分钟最多30次请求"""
     client_ip = request.client.host if request.client else "unknown"
     
     # 健康检查和根路径不限制
@@ -310,12 +317,12 @@ async def get_tools_schema():
 # MCP Streamable HTTP Transport Endpoints (2025-03-26 spec)
 
 @app.options("/mcp")
-async def mcp_options():
+async def mcp_options(request: Request):
     """Handle CORS preflight for /mcp endpoint"""
     return JSONResponse(
         {},
         headers={
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": get_cors_origin(request.headers.get("origin")),
             "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id",
         }
@@ -361,7 +368,7 @@ async def mcp_endpoint_get(request: Request):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": get_cors_origin(request.headers.get("origin")),
             "Access-Control-Allow-Headers": "*",
             "X-Accel-Buffering": "no",  # Disable nginx buffering
             "Mcp-Session-Id": session_id  # Return session ID in header
@@ -434,7 +441,7 @@ async def mcp_endpoint_post(request: Request):
                 response,
                 headers={
                     "Mcp-Session-Id": session_id,
-                    "Access-Control-Allow-Origin": "*"
+                    "Access-Control-Allow-Origin": get_cors_origin(request.headers.get("origin"))
                 }
             )
         
