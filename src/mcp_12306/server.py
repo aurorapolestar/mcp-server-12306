@@ -103,7 +103,7 @@ MCP_TOOLS = [
     },
     {
         "name": "search-stations",
-        "description": "智能车站搜索。支持中文名、拼音、简拼、三字码（Code）。可用于模糊搜索（如“北京”），也可用于精确获取车站代码（如输入“BJP”返回北京站信息）。",
+        "description": "智能车站搜索。支持中文名、拼音、简拼、三字码（Code）。可用于模糊搜索（如"北京"），也可用于精确获取车站代码（如输入"BJP"返回北京站信息）。",
         "inputSchema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -613,7 +613,7 @@ async def mcp_endpoint_post(request: Request):
                 "error": {
                     "code": -32603,
                     "message": "Internal error",
-                    "data": {"error": str(e)}
+                    "data": {}
                 }
             },
             status_code=500
@@ -788,7 +788,7 @@ async def query_tickets_validated(args: dict) -> list:
                         break  # Success
                     except Exception as e:
                         logger.error(f"12306响应解析失败: {repr(e)}，原始内容: {resp.text}")
-                        response_data = {"success": False, "error": "12306响应解析失败", "detail": f"{type(e).__name__}: {str(e)}"}
+                        response_data = {"success": False, "error": "12306响应解析失败，请稍后重试"}
                         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
             except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as e:
                 last_exception = e
@@ -798,7 +798,7 @@ async def query_tickets_validated(args: dict) -> list:
                 else:
                     logger.error(f"查询车票网络请求重试次数已耗尽: {str(e)}")
         else:
-            response_data = {"success": False, "error": f"网络请求失败 (已重试{max_retries}次): {str(last_exception)}"}
+            response_data = {"success": False, "error": f"网络请求失败 (已重试{max_retries}次)，请稍后重试"}
             return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
         tickets = []
         for ticket_str in tickets_data:
@@ -870,9 +870,8 @@ async def query_tickets_validated(args: dict) -> list:
             return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
     except Exception as e:
         import traceback
-        error_detail = f"{type(e).__name__}: {str(e)}"
-        logger.error(f"查询车票失败: {error_detail}\n{traceback.format_exc()}")
-        response_data = {"success": False, "error": "查询失败", "detail": error_detail}
+        logger.error(f"查询车票失败: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}")
+        response_data = {"success": False, "error": "查询失败，请稍后重试"}
         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
 
 # ========== get_train_no_by_train_code_validated 重构 ========== 
@@ -1111,7 +1110,7 @@ async def get_train_route_stations_validated(args: dict) -> list:
                         break # Success
                     except Exception as e:
                         logger.error(f"12306响应解析失败: {str(e)}, body: {resp.text}")
-                        response_data = {"success": False, "error": f"12306响应解析失败: {str(e)}"}
+                        response_data = {"success": False, "error": "12306响应解析失败，请稍后重试"}
                         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
             except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as e:
                 last_exception = e
@@ -1121,7 +1120,7 @@ async def get_train_route_stations_validated(args: dict) -> list:
                 else:
                     logger.error(f"查询经停站网络请求重试次数已耗尽: {str(e)}")
         else:
-            response_data = {"success": False, "error": f"网络请求失败 (已重试{max_retries}次): {str(last_exception)}"}
+            response_data = {"success": False, "error": f"网络请求失败 (已重试{max_retries}次)，请稍后重试"}
             return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
         
         if not json_data:
@@ -1170,7 +1169,7 @@ async def get_train_route_stations_validated(args: dict) -> list:
         
     except Exception as e:
         logger.error(f"查询经停站失败: {repr(e)}")
-        response_data = {"success": False, "error": "查询经停站失败", "detail": str(e)}
+        response_data = {"success": False, "error": "查询经停站失败，请稍后重试"}
         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
 
 # ========== query_transfer_validated 函数实现 ==========
@@ -1300,7 +1299,7 @@ async def query_transfer_validated(args: dict) -> list:
                 else:
                     logger.error(f"中转查询网络请求重试次数已耗尽: {str(e)}")
         else:
-            response_data = {"success": False, "error": f"网络请求失败 (已重试{max_retries}次): {str(last_exception)}"}
+            response_data = {"success": False, "error": f"网络请求失败 (已重试{max_retries}次)，请稍后重试"}
             return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
         
         if not all_transfer_list:
@@ -1395,7 +1394,7 @@ async def query_transfer_validated(args: dict) -> list:
         
     except Exception as e:
         logger.error(f"查询中转失败: {repr(e)}")
-        response_data = {"success": False, "error": "查询中转失败", "detail": str(e)}
+        response_data = {"success": False, "error": "查询中转失败，请稍后重试"}
         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
 
 
@@ -1472,7 +1471,7 @@ async def query_ticket_price_validated(args: dict) -> list:
                         break
                     except Exception as e:
                         logger.error(f"12306响应解析失败: {str(e)}")
-                        response_data = {"success": False, "error": "12306响应解析失败", "detail": str(e)}
+                        response_data = {"success": False, "error": "12306响应解析失败，请稍后重试"}
                         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
             except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as e:
                 last_exception = e
@@ -1482,7 +1481,7 @@ async def query_ticket_price_validated(args: dict) -> list:
                 else:
                     logger.error(f"票价查询网络请求重试次数已耗尽: {str(e)}")
         else:
-            response_data = {"success": False, "error": f"网络请求失败 (已重试{max_retries}次): {str(last_exception)}"}
+            response_data = {"success": False, "error": f"网络请求失败 (已重试{max_retries}次)，请稍后重试"}
             return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
 
         # 解析票价信息
@@ -1557,7 +1556,7 @@ async def query_ticket_price_validated(args: dict) -> list:
         
     except Exception as e:
         logger.error(f"查询票价失败: {repr(e)}")
-        response_data = {"success": False, "error": "查询票价失败", "detail": str(e)}
+        response_data = {"success": False, "error": "查询票价失败，请稍后重试"}
         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
 
 # ========== get_current_time_validated 新增时间工具 ==========
@@ -1588,7 +1587,7 @@ async def get_current_time_validated(args: dict) -> list:
         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
     except Exception as e:
         logger.error(f"获取时间信息失败: {repr(e)}")
-        response_data = {"success": False, "error": "获取时间信息失败", "detail": str(e)}
+        response_data = {"success": False, "error": "获取时间信息失败，请稍后重试"}
         return [{"type": "text", "text": json.dumps(response_data, ensure_ascii=False)}]
 
 @app.on_event("startup")
