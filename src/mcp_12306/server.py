@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import httpx
+import os
 from datetime import datetime, date
 from typing import Dict, List, Any
 import uuid
@@ -192,13 +193,89 @@ app = FastAPI(
     debug=settings.debug
 )
 
+# CORS - 限制来源，配合 nginx 认证使用
+ALLOWED_ORIGINS = [
+    "https://mcp.ashercloud.icu",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Mcp-Session-Id"],
 )
+
+
+# ========== Rate Limiting Middleware ==========
+import time
+from collections import defaultdict
+
+class RateLimiter:
+    """简单的内存频率限制器"""
+    def __init__(self, max_requests: int = 30, window_seconds: int = 60):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = defaultdict(list)
+    
+    def is_allowed(self, client_ip: str) -> bool:
+        now = time.time()
+        # 清理过期记录
+        self.requests[client_ip] = [
+            t for t in self.requests[client_ip]
+            if now - t < self.window_seconds
+        ]
+        if len(self.requests[client_ip]) >= self.max_requests:
+            return False
+        self.requests[client_ip].append(now)
+        return True
+
+rate_limiter = RateLimiter(max_requests=30, window_seconds=60)
+
+
+# ========== Optional API Key Authentication ==========
+API_KEY = os.environ.get("MCP_12306_API_KEY", "")
+
+def verify_api_key(request: Request) -> bool:
+    """验证 API Key（如果设置了的话）"""
+    if not API_KEY:
+        return True  # 没设置 API Key 则跳过验证
+    
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:] == API_KEY
+    
+    # 也支持查询参数
+    query_key = request.query_params.get("key", "")
+    return query_key == API_KEY
+
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """频率限制中间件 - 每IP每分钟最多30次请求""
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # 健康检查和根路径不限制
+    if request.url.path in ["/", "/health"]:
+        return await call_next(request)
+    
+    # API Key 验证（如果设置了的话）
+    if not verify_api_key(request):
+        return JSONResponse(
+            {"error": "Invalid API key"},
+            status_code=401
+        )
+    
+    if not rate_limiter.is_allowed(client_ip):
+        return JSONResponse(
+            {"error": "Rate limit exceeded. Max 30 requests per minute."},
+            status_code=429
+        )
+    
+    return await call_next(request)
 
 @app.get("/")
 async def root():
@@ -684,7 +761,7 @@ async def query_tickets_validated(args: dict) -> list:
 
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=False) as client:
+                async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=True) as client:
                     await client.get(url_init, headers=headers)
                     params = {
                         "leftTicketDTO.train_date": train_date,
@@ -827,7 +904,7 @@ async def get_train_no_by_train_code_validated(args: dict) -> list:
     url_u = HTTP_URLS["query_left_ticket"]
     headers = HTTP_HEADERS.copy()
     
-    async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=False) as client:
+    async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=True) as client:
         await client.get(url_init, headers=headers)
         params = {
             "leftTicketDTO.train_date": train_date,
@@ -1002,7 +1079,7 @@ async def get_train_route_stations_validated(args: dict) -> list:
 
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=False) as client:
+                async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=True) as client:
                     # 先访问init获取cookie
                     init_resp = await client.get("https://kyfw.12306.cn/otn/leftTicket/init", headers=headers)
                     logger.info(f"12306 init status: {init_resp.status_code}")
@@ -1150,7 +1227,7 @@ async def query_transfer_validated(args: dict) -> list:
 
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=False) as client:
+                async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=True) as client:
                     # 先访问init获取cookie
                     await client.get(url_init, headers=headers)
                     
@@ -1373,7 +1450,7 @@ async def query_ticket_price_validated(args: dict) -> list:
 
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=False) as client:
+                async with httpx.AsyncClient(follow_redirects=False, timeout=8, verify=True) as client:
                     await client.get(url_init, headers=headers)
                     resp = await client.get(url_price, headers=headers, params=params)
                     logger.info(f"12306 price query status: {resp.status_code}, url: {resp.url}")
